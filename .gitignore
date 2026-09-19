@@ -1,0 +1,47 @@
+.vscode
+__pycache__
+*.pyc
+
+/target
+target/
+*.pyd
+*.dll
+*.exe
+*.so
+*.pth
+
+.ipynb_checkpoints
+*.ipynb
+
+/_draft
+
+# 本機環境
+.venv/
+.cargo/
+.cursor/
+.wheels/
+
+# 模型與訓練產物
+backups/
+Coach/
+2024v4best/
+mortal/.venv/
+mortal/distill/
+mortal/output/
+mortal/pretrained/
+mortal/date/
+
+# 牌譜與資料集
+tenhou_gz/
+Test set/
+mjlog2mjai-master/
+
+# reviewer 工具資料（含帳號憑證檔，勿提交）
+reviewer/out/
+reviewer/mjai-reviewer-master/
+reviewer/tensoul-main/
+reviewer/killer_mortal_gui-master/
+reviewer/mortal-wrapper/
+
+# Mortal 上游 CI（不適用本項目）
+.github/
