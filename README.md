@@ -7,7 +7,7 @@
 ```
 libriichi/     Rust 引擎（來源 Mortal 上游，包含 tensor 核心與 mjai 通訊）
 mortal/        Python 訓練 / 推理 / 蒸餾訓練（distill.py、dataloader、模型定義）
-reviewer/      工具鏈：bigcoach / gokujan API 譜抓取、mjai-reviewer 風格 HTML 回放導出、
+reviewer/      工具鏈：牌譜抓取、mjai-reviewer 風格 HTML 回放導出、
                html_runs → distill 資料集建構（api_to_distill / html_to_distill）
 docs/          文件（mdbook，來源 Mortal 上游）
 exe-wrapper/   Rust 執行檔包裝（含 GUI 啟動器）
