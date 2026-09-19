@@ -15,7 +15,7 @@ exe-wrapper/   Rust 執行檔包裝（含 GUI 啟動器）
 
 ## 資料集工作流程
 
-1. 從 bigcoach/gokujan API 抓取強 AI（如 RIGEL 1.4）的評測對局（`fetch_api_reviews.py`）
+1. 抓取強 AI的評測對局（`fetch_api_reviews.py`）
 2. 轉換成訓練資料（`api_to_distill.py --no-convert` → `html_to_distill.py --gid …`，merge 進 `mortal/distill/targets.pt`，key 為 `<taskId>_s<seat>`）
 3. 以 `distill.py` 進行蒸餾監督訓練
 4. 產出 HTML 回放供人工檢視（`render_report/`，含回放 iframe、繁中渲染）
