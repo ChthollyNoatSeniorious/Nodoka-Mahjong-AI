@@ -1,4 +1,4 @@
-# のどっち Mahjong AI
+# のどっち Mahjong AI (in development)
 
 以 [Mortal](https://github.com/Equim-chan/Mortal)（AGPL-3.0）為基礎的日本麻將 AI 開發項目，重點在 **模型蒸餾（distill）訓練**：以強 AI 的對局評測資料為教師訊號，訓練單人專屬風格的麻雀 AI。
 
