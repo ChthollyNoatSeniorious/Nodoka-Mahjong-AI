@@ -20,6 +20,7 @@ target/
 .cargo/
 .cursor/
 .wheels/
+node_modules/
 
 # 模型與訓練產物
 backups/

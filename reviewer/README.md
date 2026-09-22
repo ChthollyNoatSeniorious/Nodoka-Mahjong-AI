@@ -57,6 +57,9 @@ python reviewer\review.py -u "..." -m "2024v4best\2024v4best.pth"
 python reviewer\review.py -u "..." -k "E1,E3"
 python reviewer\review.py -u "..." --json -o out\result.json
 python reviewer\review.py -u "..." --no-open --show-rating
+
+# Killerducky UI（mjai.ekyu.moe 交互式复盘界面，本地起 server，退出按 Ctrl+C）
+python reviewer\review.py -u "..." --ui killerducky
 ```
 
 | 参数 | 说明 |
@@ -70,9 +73,32 @@ python reviewer\review.py -u "..." --no-open --show-rating
 | `--lang` | 报告语言，默认 `zh` |
 | `-k/--kyokus` | 只复盘指定局，如 `E1,E4,S3.1` |
 | `--json` | 输出 JSON 而非 HTML |
+| `--ui classic\|killerducky` | 复盘界面：`classic`（默认）= 官方同款 HTML 报告；`killerducky` = mjai.ekyu.moe 交互式 GUI |
 | `--no-open` | 不自动打开浏览器 |
 | `--show-rating` | 报告里显示 rating |
 | `--paipu-service` | 雀魂牌谱抓取服务地址（默认 `https://ninklang.tech`） |
+
+## Killerducky UI（复盘界面二选一）
+
+`--ui killerducky` 使用官方 Killer Mortal Reviewer 前端（即 <https://mjai.ekyu.moe> 的界面）：
+
+1. 用**你的模型**跑 mjai-reviewer，输出 `out\killerducky\<名字>\review.json`（每场一个目录，互不覆盖）；
+2. 把 `killer_mortal_gui-master/` 前端复制到同一目录（i18next 已本地化，**无网络也能开**）；
+3. 在 `127.0.0.1` 上起一个临时 HTTP 服务器并自动打开浏览器；
+4. **进程保持前台运行（Ctrl+C 停止）** —— 关掉终端界面就停了。
+
+界面里能看到：每手牌的**期望 vs 实际打牌**、候选动作的 **Q 值/概率条**、一键跳到
+**上一/下一个不一致**（Prev/Next Error）、每巡顺序回放、危险度/放铳率视图、多语言
+（右上角 Options 可切简体中文）等。
+
+```powershell
+python reviewer\review.py -u "https://tenhou.net/0/?log=...&tw=2" --ui killerducky
+python reviewer\review.py -i log.json -a 0 --ui killerducky -o mygame   # 自定义目录名
+python reviewer\review.py -i log.json -a 0 --ui killerducky --no-open   # 只起 server 不开浏览器
+```
+
+> 前端与 JSON 的契约可用 `reviewer\out\_verify_kd.py [review.json]` 回归验证
+> （模拟前端 `parseMortalJsonStr` + `mergeMortalEvals` 的合并逻辑，全部 entry 能对上才通过）。
 
 ## 雀魂牌谱获取的三条路
 

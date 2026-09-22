@@ -21,19 +21,31 @@ Examples
     # Tenhou game with the finetuned model
     python review.py -u "https://tenhou.net/0/?log=2019050417gm-0029-0000-4f2a8622&tw=2"
 
-    # Mahjong Soul share link (no account needed)
+    # Mahjong Soul share link (no manual setup: the bundled tensoul service is
+    # auto-started on 127.0.0.1:2563 and stopped when review.py exits; add
+    # --keep-paipu-service to leave it running for batched reviews)
     python review.py -u "https://game.maj-soul.com/1/?paipu=260914-...._a263619576"
 
     # pick a model / only some kyokus / JSON output
     python review.py -u "..." -m "mortal/pretrained/mortal.pth" -k E1,E3 --json
+
+    # Killerducky UI: interactive GUI (like https://mjai.ekyu.moe), served
+    # locally and opened in the browser (Ctrl+C to stop)
+    python review.py -u "..." --ui killerducky
 """
 
 from __future__ import annotations
 
 import argparse
+import functools
+import http.server
 import os
+import shutil
+import socketserver
 import subprocess
 import sys
+import threading
+import webbrowser
 from pathlib import Path
 
 import mjsoul_fetch
@@ -59,8 +71,16 @@ REVIEWER_DIR = HERE / "mjai-reviewer-master"
 REVIEWER = REVIEWER_DIR / "target" / "release" / "mjai-reviewer.exe"
 OUT_DIR = HERE / "out"
 
-DEFAULT_MODEL = MORTAL_DIR / "output" / "my_finetuned_model" / "phase2_selfplay_step325000.pth"
+DEFAULT_MODEL = MORTAL_DIR / "output" / "my_finetuned_model" / "2024v4best.pth"
 DEFAULT_GRP = MORTAL_DIR / "pretrained" / "grp.pth"
+
+# Killerducky UI (Killer Mortal Reviewer) — the interactive front-end of
+# https://mjai.ekyu.moe. It is pure static JS: index.html loads review JSON
+# via ?data=... and has to be served over HTTP (XMLHttpRequest, same-origin).
+KD_UI_DIR = HERE / "killer_mortal_gui-master"
+KD_ROOT = OUT_DIR / "killerducky"
+I18NEXT_CDN = '<script src="https://unpkg.com/i18next@23.10.0/dist/umd/i18next.min.js"></script>'
+I18NEXT_LOCAL = '<script src="i18next.min.js"></script>'
 
 
 def describe_model(path: Path) -> str:
@@ -106,7 +126,67 @@ def write_cfg(model: Path, grp: Path, dest: Path) -> Path:
     return dest
 
 
-def preflight(args, in_file: str | None, player_id: int | None,url=None) -> None:
+def copy_killerducky_ui(dest: Path) -> None:
+    """Copy the Killer Mortal Reviewer front-end into *dest*.
+
+    Two localizations are applied to the *copied* files (the vendored original
+    stays untouched):
+
+    * the i18next CDN <script> tag is replaced by a local file (the bundled
+      ``i18next.min.js``), so the UI works fully offline;
+    * the absolute ``/favicon-*.png`` links are satisfied by copying the icons
+      next to ``index.html``.
+    """
+    if not KD_UI_DIR.is_dir():
+        raise SystemExit(f"Killerducky UI not found: {KD_UI_DIR}")
+    shutil.copytree(KD_UI_DIR, dest, dirs_exist_ok=True)
+
+    index = dest / "index.html"
+    html = index.read_text(encoding="utf-8")
+    if I18NEXT_CDN in html:
+        if (dest / "i18next.min.js").is_file():
+            html = html.replace(I18NEXT_CDN, I18NEXT_LOCAL)
+        index.write_text(html, encoding="utf-8")
+    for icon in ("favicon-32x32.png", "favicon-16x16.png", "favicon.ico"):
+        src = dest / "media" / icon
+        if src.is_file() and not (dest / icon).exists():
+            shutil.copy2(src, dest / icon)
+
+
+def serve_and_open(ui_dir: Path, data_name: str, no_open: bool) -> None:
+    """Serve the Killerducky UI over HTTP and keep the process alive.
+
+    The official GUI is a plain-static page that must be fetched over HTTP
+    (it loads the review JSON with a same-origin XMLHttpRequest). We bind an
+    ephemeral port on 127.0.0.1, print the URL, optionally open the browser,
+    then block until Ctrl+C.
+    """
+    handler = functools.partial(
+        http.server.SimpleHTTPRequestHandler, directory=str(ui_dir)
+    )
+
+    class ThreadingHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+        daemon_threads = True
+        allow_reuse_address = True
+
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    port = httpd.server_address[1]
+    url = f"http://127.0.0.1:{port}/index.html?data={data_name}&showMortal=1&hand=0&ply=0"
+    print(f"[killerducky] UI    : {ui_dir}")
+    print(f"[killerducky] URL   : {url}")
+    if not no_open:
+        threading.Timer(0.3, webbrowser.open, args=(url,)).start()
+    print("[killerducky] serving (Ctrl+C to stop)...", flush=True)
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("\n[killerducky] stopped")
+    finally:
+        httpd.server_close()
+
+
+def preflight(args, in_file: str | None, player_id: int | None, url=None, *,
+              from_mjsoul_url: bool = False) -> None:
     problems = []
     if not REVIEWER.is_file():
         problems.append(
@@ -127,10 +207,16 @@ def preflight(args, in_file: str | None, player_id: int | None,url=None) -> None
     if not in_file and not url:
         problems.append("you must pass either -u/--url (Tenhou or Mahjong Soul) or -i/--in-file")
     if in_file and player_id is None and not args.player_name:
-        problems.append(
-            "-a/--player-id (or -n/--player-name) is required for -i/--in-file "
-            "(only Mahjong Soul share links carry the seat)"
-        )
+        if from_mjsoul_url:
+            problems.append(
+                "連結未附 owner 帳號(裸 game_uuid、無 _a<uid> 後綴),無法自動判定"
+                "複審座位:請用 -a 0..3 指定要複審的玩家(0=東家,向右遞增)"
+            )
+        else:
+            problems.append(
+                "-a/--player-id (or -n/--player-name) is required for -i/--in-file "
+                "(only Mahjong Soul share links carry the seat)"
+            )
     if problems:
         print("Preflight check failed:\n", file=sys.stderr)
         for p in problems:
@@ -150,8 +236,14 @@ def main() -> int:
     src.add_argument("-a", "--player-id", type=int, choices=[0, 1, 2, 3],
                      help="seat to review: 0=East, then 1=right, 2=across, 3=left")
     src.add_argument("-n", "--player-name", help="review the player with this name instead of --player-id")
-    src.add_argument("--paipu-service", default=mjsoul_fetch.DEFAULT_SERVICE_URL,
-                     help="Mahjong Soul paipu fetch service (default: %(default)s)")
+    src.add_argument("--paipu-service", default=None,
+                     help="Mahjong Soul paipu fetch service (default: JP service "
+                          "2563; game.maj-soul.com CN links auto-use the CN "
+                          "service 2564 with the CN token)")
+    src.add_argument("--keep-paipu-service", action="store_true",
+                     help="keep the auto-started local paipu service running after "
+                          "review.py exits (useful when batching many paipus: it is "
+                          "spawned once and reused, instead of logging in per run)")
 
     ap.add_argument("-m", "--model", type=Path, default=DEFAULT_MODEL,
                     help=f"custom Mortal .pth to review with (default: {DEFAULT_MODEL.name})")
@@ -160,6 +252,11 @@ def main() -> int:
     out = ap.add_argument_group("output")
     out.add_argument("-o", "--out-file", type=Path, help="output report file (.html or .json)")
     out.add_argument("--json", action="store_true", help="write JSON instead of an HTML report")
+    out.add_argument("--ui", choices=["classic", "killerducky"], default="classic",
+                     help="review UI: 'classic' = official mjai-reviewer HTML report "
+                          "(https://mjai.ekyu.moe style); 'killerducky' = the Killer Mortal "
+                          "Reviewer interactive GUI, served from a local HTTP server and "
+                          "opened in the browser (default: classic)")
     out.add_argument("--lang", default="zh", choices=["en", "ja", "zh", "ko"],
                      help="report language (default: zh)")
     out.add_argument("--show-rating", action="store_true", help="include the rating")
@@ -182,21 +279,42 @@ def main() -> int:
     url = args.url
     in_file = args.in_file
     player_id = args.player_id
+    converted_from_mjsoul = False
 
     if url and mjsoul_fetch.is_mjsoul_url(url):
-        print(f"[review] Mahjong Soul link detected -> fetching via {args.paipu_service}")
+        paipu_proc = None
         try:
+            service_url, svc_env = mjsoul_fetch.resolve_service(
+                url, args.paipu_service
+            )
+            print(f"[review] Mahjong Soul link detected -> fetching via {service_url}")
+            paipu_proc, started = mjsoul_fetch.ensure_local_service(
+                service_url,
+                env=svc_env,
+                log_path=OUT_DIR / "tensoul_service.log",
+                print_fn=lambda s: print(f"[mjsoul] {s}", flush=True),
+            )
             result, path = mjsoul_fetch.fetch_tenhou(
                 url,
                 OUT_DIR / "mjsoul_tenhou.json",
-                service_url=args.paipu_service,
+                service_url=service_url,
                 status_callback=lambda s: print(f"[mjsoul] {s}", flush=True),
             )
         except RuntimeError as exc:
             print(f"[review] failed to fetch paipu: {exc}", file=sys.stderr)
+            if paipu_proc is not None:
+                mjsoul_fetch.stop_local_service(paipu_proc)
             return 3
+        if started and args.keep_paipu_service:
+            print("[mjsoul] keeping the local paipu service running "
+                  "(--keep-paipu-service)")
+        elif started:
+            mjsoul_fetch.stop_local_service(paipu_proc)
+            print("[mjsoul] local paipu service stopped (pass --keep-paipu-service "
+                  "to keep it for the next run)")
         in_file = str(path)
         url = None
+        converted_from_mjsoul = True
         print(f"[review] converted log -> {path}")
         if player_id is None and isinstance(result.get("_target_actor"), int):
             player_id = result["_target_actor"]
@@ -204,15 +322,27 @@ def main() -> int:
             who = names[player_id] if player_id < len(names) else "?"
             print(f"[review] seat auto-detected from link: {player_id} ({who})")
 
-    preflight(args, in_file, player_id, url)
+    preflight(args, in_file, player_id, url, from_mjsoul_url=converted_from_mjsoul)
 
     cfg = write_cfg(args.model, args.grp, OUT_DIR / "config_review.toml")
 
     # NB: mjai-reviewer runs with cwd = REVIEWER_DIR, so paths must be absolute.
-    if args.out_file:
+    ui = args.ui
+    if ui == "killerducky":
+        # The Killerducky GUI consumes exactly the review JSON, and the whole
+        # UI bundle is staged into a per-report directory so that several
+        # reports can coexist under out/killerducky/.
+        slug = Path(args.out_file).stem if args.out_file else "report"
+        kd_dir = KD_ROOT / slug
+        report = (kd_dir / "review.json").resolve()
+        kd_dir.mkdir(parents=True, exist_ok=True)
+        json_requested = True
+    elif args.out_file:
         report = Path(args.out_file).resolve()
+        json_requested = args.json
     else:
         report = (OUT_DIR / ("report" + (".json" if args.json else ".html"))).resolve()
+        json_requested = args.json
 
     cmd = [
         str(REVIEWER),
@@ -233,13 +363,15 @@ def main() -> int:
         cmd += ["-n", args.player_name]
     if args.kyokus:
         cmd += ["-k", args.kyokus]
-    if args.json:
+    if json_requested:
         cmd.append("--json")
     if args.show_rating:
         cmd.append("--show-rating")
     if args.anonymous:
         cmd.append("--anonymous")
-    if args.no_open:
+    if args.no_open or ui == "killerducky":
+        # classic: honour --no-open; killerducky: the HTML auto-open logic of
+        # mjai-reviewer is irrelevant (we open the GUI ourselves afterwards)
         cmd.append("--no-open")
     if args.verbose:
         cmd.append("--verbose")
@@ -258,6 +390,10 @@ def main() -> int:
         return proc.returncode
 
     print(f"[review] done -> {report}")
+
+    if ui == "killerducky":
+        copy_killerducky_ui(kd_dir)
+        serve_and_open(kd_dir, "review.json", args.no_open)
     return 0
 
 

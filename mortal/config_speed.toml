@@ -1,0 +1,168 @@
+# Local training config for this machine.
+# Run from the `mortal` directory: python train.py
+
+[control]
+version = 4
+online = false
+
+# Working copy of pretrained weights (do not point this at pretrained/mortal.pth,
+# train.py overwrites state_file on save).
+state_file = './output/my_finetuned_model/distill_snaps_v3/step344000.pth'
+best_state_file = './output/my_finetuned_model/best.pth'
+tensorboard_dir = './output/my_finetuned_model/tensorboard'
+
+device = 'cuda:0'
+enable_cudnn_benchmark = false
+# GTX 1650 (4GB): AMP + smaller batch to avoid OOM
+enable_amp = true
+enable_compile = false
+
+batch_size = 32
+opt_step_every = 1
+
+# ---- Akino Hana style-fitting run (tuned for maximum dataset fit) ----
+# save less often: every 2000 steps instead of 400 (each save is a 130MB write)
+save_every = 2000
+# disable the slow CPU test_play during fitting (it is evaluation, not fitting)
+test_every = 2000000
+submit_every = 2000
+
+# using env `TRAIN_PLAY_PROFILE`
+[train_play.default]
+games = 40
+log_dir = './output/train_play'
+boltzmann_epsilon = 0.005
+boltzmann_temp = 0.05
+top_p = 1.0
+repeats = 1
+
+[test_play]
+games = 40
+log_dir = './output/test_play'
+
+[dataset]
+globs = ['./date/*.json.gz']
+file_index = './output/my_finetuned_model/file_index.pth'
+file_batch_size = 5
+reserve_ratio = 0.0
+num_workers = 1
+player_names_files = []
+num_epochs = 3
+enable_augmentation = false
+augmented_first = false
+
+[env]
+gamma = 1
+pts = [6.0, 4.0, 2.0, 0.0]
+
+[resnet]
+conv_channels = 192
+num_blocks = 40
+
+[cql]
+min_q_weight = 5
+
+[aux]
+next_rank_weight = 0.2
+
+[freeze_bn]
+# `true` in online training
+mortal = false
+
+[optim]
+eps = 1e-8
+betas = [0.9, 0.999]
+# reverted to 0.1: the 0.01 experiment measurably hurt dataset fit
+weight_decay = 0.1
+max_grad_norm = 0
+
+[optim.scheduler]
+# reverted to 2e-5: 5e-5 measurably hurt dataset fit (81.61% vs 82.19% agreement)
+peak = 2e-5
+final = 2e-5
+warm_up_steps = 0
+max_steps = 0
+
+[baseline.train]
+device = 'cpu'
+enable_compile = false
+state_file = './pretrained/mortal.pth'
+
+[baseline.test]
+device = 'cpu'
+enable_compile = false
+state_file = './pretrained/mortal.pth'
+
+[online]
+history_window = 50
+enable_compile = false
+
+[online.remote]
+host = '127.0.0.1'
+port = 5000
+
+[online.server]
+buffer_dir = './output/online/buffer'
+drain_dir = './output/online/drain'
+sample_reuse_rate = 0
+sample_reuse_threshold = 0
+capacity = 1600
+force_sequential = false
+
+[1v3]
+seed_key = -1
+games_per_iter = 4
+iters = 1
+log_dir = './output/1v3_speed'
+
+[1v3.challenger]
+device = 'cuda:0'
+name = 'mortal'
+state_file = './output/my_finetuned_model/distill_snaps_v3/step344000.pth'
+stochastic_latent = false
+enable_compile = false
+enable_amp = true
+enable_rule_based_agari_guard = true
+
+[1v3.champion]
+device = 'cpu'
+name = 'baseline'
+state_file = '../2024v4best/2024v4best.pth'
+stochastic_latent = false
+enable_compile = false
+enable_amp = true
+enable_rule_based_agari_guard = true
+
+[1v3.akochan]
+enabled = false
+dir = './akochan'
+tactics = './akochan/tactics.json'
+
+[grp]
+state_file = './pretrained/grp.pth'
+
+[grp.network]
+hidden_size = 64
+num_layers = 2
+
+[grp.control]
+device = 'cuda:0'
+enable_cudnn_benchmark = false
+tensorboard_dir = './output/grp/log'
+
+batch_size = 64
+save_every = 2000
+val_steps = 400
+
+[grp.dataset]
+train_globs = [
+    './date/*.json.gz',
+]
+val_globs = [
+    './date/*.json.gz',
+]
+file_index = './output/grp/file_index.pth'
+file_batch_size = 5
+
+[grp.optim]
+lr = 1e-5
