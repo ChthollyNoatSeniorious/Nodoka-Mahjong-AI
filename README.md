@@ -26,3 +26,4 @@ exe-wrapper/   Rust 執行檔包裝（含 GUI 啟動器）
 
 - 程式碼：AGPL-3.0-or-later（繼承自 Mortal，Copyright (C) 2021-2022 Equim）
 - 圖示與其他素材：CC BY-SA 4.0（來源 Mortal 上游）
+- v1.4
